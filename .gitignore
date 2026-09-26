@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+.python-version
+
+# Data / cache (không commit dữ liệu nặng)
+data/
+cache/
+*.osm.pbf
+*.osm
+*.pbf
+*.parquet
+*.gpkg
+*.mbtiles
+
+# Env / secrets
+.env
+.env.*
+*.token
+secrets/
+
+# ML / notebooks
+.ipynb_checkpoints/
+models/*.pt
+models/*.onnx
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+*.swp
