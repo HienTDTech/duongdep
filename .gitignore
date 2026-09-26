@@ -23,6 +23,7 @@ cache/
 # Env / secrets
 .env
 .env.*
+!.env.example
 *.token
 secrets/
 

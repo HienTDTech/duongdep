@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>duongdep — chọn đường dễ đi</title>
+<link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<style>
+  :root { --fg:#111; --muted:#666; }
+  * { box-sizing: border-box; }
+  body { margin:0; font: 14px/1.4 system-ui, sans-serif; color:var(--fg); }
+  #app { display:flex; height:100vh; }
+  #map { flex:1; }
+  #panel { width:360px; max-width:45vw; padding:12px; overflow:auto; border-left:1px solid #ddd; }
+  h1 { font-size:16px; margin:0 0 8px; }
+  label { display:block; font-size:12px; color:var(--muted); margin-top:8px; }
+  input, select, button { width:100%; padding:7px; margin-top:3px; font:inherit; }
+  button { cursor:pointer; background:#0b5; color:#fff; border:0; border-radius:6px; margin-top:10px; }
+  button.secondary { background:#eee; color:#111; }
+  .row { display:flex; gap:8px; }
+  .row > * { flex:1; }
+  #result { margin-top:12px; }
+  .seg { display:flex; align-items:center; gap:6px; font-size:12px; padding:3px 0; border-bottom:1px dashed #eee; }
+  .dot { width:11px; height:11px; border-radius:50%; flex:0 0 auto; }
+  a.flink { display:block; margin-top:8px; padding:9px; text-align:center; background:#1a73e8; color:#fff; border-radius:6px; text-decoration:none; }
+  a.glink { background:#0b5; }
+  .muted { color:var(--muted); font-size:12px; }
+  #msg { color:#b00; font-size:12px; margin-top:8px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="map"></div>
+  <div id="panel">
+    <h1>duongdep <span class="muted">đường dễ đi</span></h1>
+
+    <label>Điểm đi (lat,lng)</label>
+    <input id="from" placeholder="21.0285,105.8542" value="21.0285,105.8542" />
+    <label>Điểm đến (lat,lng)</label>
+    <input id="to" placeholder="20.9715,105.7780" value="20.9715,105.7780" />
+    <div class="row">
+      <div>
+        <label>Phương tiện</label>
+        <select id="mode"><option value="car">Ô tô</option><option value="bike">Xe máy/xe đạp</option></select>
+      </div>
+      <div>
+        <label>Đặt điểm bằng click</label>
+        <select id="clickTarget"><option value="from">Điểm đi</option><option value="to">Điểm đến</option></select>
+      </div>
+    </div>
+
+    <button id="go">Tìm tuyến dễ đi</button>
+    <button id="swap" class="secondary">Đảo chiều</button>
+    <div id="msg"></div>
+    <div id="result"></div>
+  </div>
+</div>
+
+<script>
+const map = new maplibregl.Map({
+  container: 'map',
+  style: { version: 8, sources: {
+      osm: { type:'raster', tiles:['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+             tileSize:256, attribution:'© OpenStreetMap' } },
+    layers: [{ id:'osm', type:'raster', source:'osm' }] },
+  center: [105.83, 21.00], zoom: 12
+});
+map.addControl(new maplibregl.NavigationControl());
+
+let routeLayerReady = false;
+let clickTarget = 'from';
+
+function marker(lngLat, color) {
+  return new maplibregl.Marker({ color }).setLngLat(lngLat).addTo(map);
+}
+let mFrom = marker([105.8542, 21.0285], '#0b5');
+let mTo = marker([105.7780, 20.9715], '#b00');
+
+map.on('click', (e) => {
+  const { lng, lat } = e.lngLat;
+  const val = lat.toFixed(6) + ',' + lng.toFixed(6);
+  if (clickTarget === 'from') { document.getElementById('from').value = val; mFrom.setLngLat(e.lngLat); }
+  else { document.getElementById('to').value = val; mTo.setLngLat(e.lngLat); }
+});
+document.getElementById('clickTarget').onchange = (e) => clickTarget = e.target.value;
+
+function scoreColor(score) {
+  if (score >= 1.0) return '#0a0';      // rộng/đẹp
+  if (score >= 0.7) return '#7bbf00';
+  if (score >= 0.45) return '#e8a400';
+  if (score >= 0.2) return '#e85d00';
+  return '#d00';                        // ngõ nhỏ/xấu
+}
+
+async function findRoute() {
+  const msg = document.getElementById('msg');
+  const result = document.getElementById('result');
+  msg.textContent = ''; result.innerHTML = 'đang tính...';
+  const from = document.getElementById('from').value.trim();
+  const to = document.getElementById('to').value.trim();
+  const mode = document.getElementById('mode').value;
+  try {
+    const r = await fetch(`/api/route?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&mode=${mode}`);
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.detail || ('HTTP ' + r.status));
+    drawRoute(data);
+    renderResult(data, from, to, mode);
+  } catch (err) {
+    result.innerHTML = '';
+    msg.textContent = 'Lỗi: ' + err.message;
+  }
+}
+
+function drawRoute(data) {
+  const segFeatures = data.segments.map(s => ({
+    type:'Feature',
+    properties:{ color: scoreColor(s.score), score:s.score },
+    geometry:{ type:'LineString', coordinates: s.geometry.map(p => [p[1], p[0]]) }
+  }));
+  const geojson = { type:'FeatureCollection', features: segFeatures };
+  if (map.getSource('route')) {
+    map.getSource('route').setData(geojson);
+  } else {
+    map.addSource('route', { type:'geojson', data: geojson });
+    map.addLayer({ id:'route', type:'line', source:'route',
+      paint:{ 'line-color':['get','color'], 'line-width':6, 'line-opacity':0.85 } });
+  }
+  const coords = data.coords.map(p => [p[1], p[0]]);
+  const b = coords.reduce((bb, c) => bb.extend(c), new maplibregl.LngLatBounds(coords[0], coords[0]));
+  map.fitBounds(b, { padding: 60 });
+}
+
+function renderResult(data, from, to, mode) {
+  const el = document.getElementById('result');
+  const narrow = data.segments.filter(s => (s.width_proxy_m != null && s.width_proxy_m < 5) || s.score < 0.45).length;
+  const rows = data.segments.slice(0, 40).map(s => `
+    <div class="seg">
+      <span class="dot" style="background:${scoreColor(s.score)}"></span>
+      <span><b>${s.highway}</b> ${s.surface ? '· ' + s.surface : ''}
+        ${s.width_proxy_m != null ? '· ~' + s.width_proxy_m + 'm' : '· width ?'}
+        · ${Math.round(s.length_m)}m</span>
+    </div>`).join('');
+  el.innerHTML = `
+    <h3 style="margin:10px 0 4px">${data.length_km} km · ${data.segments.length} đoạn</h3>
+    <div class="muted">${narrow} đoạn có thể hẹp/xấu (ước lượng)</div>
+    <a class="flink" href="${data.gmaps_url}" target="_blank" rel="noopener">Mở bằng Google Maps (app, ≤9 điểm)</a>
+    <a class="flink secondary" href="${data.gmaps_url_mobile}" target="_blank" rel="noopener">Google Maps (mobile browser, ≤3 điểm)</a>
+    <a class="flink glink" href="/api/export/gpx?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&mode=${mode}">Tải GPX (OsmAnd / My Maps)</a>
+    <div class="muted" style="margin-top:10px">Chi tiết đoạn:</div>
+    ${rows}
+    <div style="margin-top:12px; border-top:1px solid #ddd; padding-top:8px">
+      <label>Xác nhận sau chuyến</label>
+      <select id="verdict"><option value="good">Tốt</option><option value="mixed">Tạm</option><option value="bad">Tệ</option></select>
+      <input id="note" placeholder="ghi chú (ngập, ngõ nhỏ...)" />
+      <button id="confirmBtn" class="secondary">Gửi xác nhận</button>
+    </div>`;
+  document.getElementById('confirmBtn').onclick = async () => {
+    const verdict = document.getElementById('verdict').value;
+    const note = document.getElementById('note').value;
+    await fetch('/api/confirm', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ verdict, note }) });
+    document.getElementById('msg').textContent = 'Đã ghi xác nhận. Cảm ơn!';
+  };
+}
+
+document.getElementById('go').onclick = findRoute;
+document.getElementById('swap').onclick = () => {
+  const f = document.getElementById('from'); const t = document.getElementById('to');
+  [f.value, t.value] = [t.value, f.value];
+  const a = mFrom.getLngLat(), b = mTo.getLngLat();
+  mFrom.setLngLat(b); mTo.setLngLat(a);
+};
+</script>
+</body>
+</html>
