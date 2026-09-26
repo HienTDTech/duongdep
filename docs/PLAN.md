@@ -117,7 +117,7 @@ Vấn đề gốc: `width` gần như không có trong OSM → phải suy từ b
 | Building OSM thưa → width sai | thêm MS/Google footprints; hiện confidence |
 | Google Maps giới hạn 3/9 waypoint | UI nói rõ "gần đúng"; GPX + OsmAnd nếu cần khớp |
 | **Có thực sự đỡ khó chịu hơn không?** | đo ở 1.4 — đây là câu hỏi sống còn |
-| Liệu có ai khác dùng? | chưa cần ở Phase 1; để bài viết trả lời (xem `CONTENT-IDEAS.md`) |
+| Liệu có ai khác dùng? | chưa cần ở Phase 1; để bài viết trả lời (xem `BLOG-BACKLOG-duongdep.md` trong repo research-personal) |
 
 ---
 
